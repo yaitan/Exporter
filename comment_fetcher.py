@@ -17,6 +17,33 @@ media_fields = ['id',
                 'is_shared_to_feed'
                 ]
 
+comment_fields = ['username',
+                  'hidden',
+                  'id',
+                  'like_count',
+                  'parent_id',
+                  'replies',
+                  'text',
+                  'timestamp',
+                  ]
+
+def add_collaborators(workbook: xl.Workbook):
+    sheet = workbook.active
+    sheet.cell(row=1, column=sheet.max_column + 1, value='collaborators')
+    for row in sheet.iter_rows(min_row=2):
+        media_id = row[0].value
+        collabs_json = get_collabs(media_id)
+        collabs = ', '.join([data['username'] for data in collabs_json['data']])
+        row[-1].value = collabs
+
+
+
+
+def get_collabs(media_id):
+    url = f"{API}/{media_id}/collaborators&{ACCESS}"
+
+    response = requests.get(url)
+    return response.json()
 
 def reformat_media_product_type(json):
     product = json['media_product_type']
@@ -88,7 +115,8 @@ def get_media_ids(ig_user_id):
 
 # Step 2: Fetch comments for a specific media ID
 def get_comments(media_id):
-    url = f"{API}/{media_id}/comments?fields=id,text,username,timestamp&{ACCESS}"
+    fields = ','.join(comment_fields)
+    url = f"{API}/{media_id}/comments?fields={fields}&{ACCESS}"
 
     response = requests.get(url)
     return response.json()
@@ -102,6 +130,7 @@ def get_media_info(media_id):
     return json
 
 
+
 # Example Usage
 # media = get_media(INSTAGRAM_USER_ID, ACCESS_TOKEN)
 # print("Media:", media)
@@ -111,9 +140,14 @@ def get_media_info(media_id):
 # comments = get_comments(first_media_id, ACCESS_TOKEN)
 # print("Comments:", comments)
 
-user_id = get_username()
-total_posts = get_post_count(user_id)
-medias = get_media_ids(user_id)
-sheets = create_xl("Test")
-add_all_media(medias, sheets)
-sheets.save("Test.xlsx")
+# user_id = get_username()
+# total_posts = get_post_count(user_id)
+# medias = get_media_ids(user_id)
+
+test_media_id = '18050673620107822'
+print(get_collabs(test_media_id))
+# comments = get_comments(medias[0]['id'])
+# print(comments)
+# sheets = create_xl("Test")
+# add_all_media(medias, sheets)
+# sheets.save("Test.xlsx")
