@@ -25,6 +25,15 @@ comment_fields = ['text',
                   'hidden',
                   ]
 
+standardized_comment_fields = {'id': None,
+                               'post_id': 0,
+                               'text': None,
+                               'like_count': 0,
+                               'replies': {'data': []},
+                               'timestamp': None,
+                               'parent_id': None,
+                               'hidden': 'UNKNOWN'}
+
 
 def add_collaborators(workbook: xl.Workbook):
     sheet = workbook.active
@@ -44,6 +53,11 @@ def get_collabs(media_id):
 
 
 def reformat_media_product_type(json):
+    """
+    combines fields media_product_type and is_shared_to_feed into one field
+    :param json:
+    :return:
+    """
     product = json['media_product_type']
     if product == "REELS":
         feed = json['is_shared_to_feed']
@@ -54,6 +68,11 @@ def reformat_media_product_type(json):
 
 
 def create_xl(name):
+    """
+    creates excel workbook with first sheet named Posts
+    :param name: filename of excel file
+    :return: workbook object
+    """
     wb = xl.Workbook()
     sheet = wb.active
     sheet.title = "Posts"
@@ -76,6 +95,11 @@ def open_xl(filename):
 
 
 def add_all_media(media_list):
+    """
+    adds all media from media_list to the excel workbook
+    :param media_list: list of media_ids
+    :return: number of comments total from all media added to excel workbook
+    """
     i = 1
     sheet = workbook.active
     count = 0
@@ -97,14 +121,23 @@ def add_all_media(media_list):
 
 
 def reformat_time(time):
+    """
+    reformats time from string to excel format
+    :param time: string in format %Y-%m-%dT%H:%M:%S%z
+    :return: string in format %Y-%m-%d %H:%M:%S
+    """
     dt = datetime.datetime.strptime(time, '%Y-%m-%dT%H:%M:%S%z')
     excel_format = dt.strftime('%Y-%m-%d %H:%M:%S')
     return excel_format
 
 
 def create_comments_sheet():
+    """
+    creates sheet named Comments in workbook
+    :return: sheet object
+    """
     sheet = workbook.create_sheet("Comments")
-    sheet.append(['post'] + comment_fields)
+    sheet.append(standardized_comment_fields.keys())
     for column in sheet.columns:
         sheet.column_dimensions[column[0].column_letter].width = 20
     workbook.save(filename)
@@ -112,15 +145,26 @@ def create_comments_sheet():
 
 
 def standarize_comment(comment: Dict, media_id):
-    standard_fields = {'id': None, 'post_id': media_id, 'text': None, 'like_count': 0, 'replies': {'data': []},
-                       'timestamp': None, 'parent_id': None, 'hidden': 'UNKNOWN'}
-    stand_comment = {k: comment.get(k, v) for k, v in standard_fields.items()}
+    """
+    ensures that all comments have the same structure, and changes replies to number of replies
+    :param comment: Json formatted comment
+    :param media_id: id of media post comment belongs to
+    :return: standardized version of the comment
+    """
+    stand_comment = {k: comment.get(k, v) for k, v in standardized_comment_fields.items()}
+    stand_comment['post_id'] = media_id
     stand_comment['replies'] = len(stand_comment['replies']['data'])
     stand_comment['timestamp'] = reformat_time(stand_comment['timestamp'])
     return stand_comment
 
 
 def add_comments(media_id, sheet):
+    """
+    adds comments from the media to the comments sheet
+    :param media_id: id of media post to get comments from
+    :param sheet: sheet object to add comments to
+    :return: number of comments added to sheet
+    """
     comments = get_comments(media_id)
     for comment in comments:
         comment = standarize_comment(comment, media_id)
@@ -130,18 +174,30 @@ def add_comments(media_id, sheet):
 
 
 def get_username():
+    """
+    gets username of the account that is being scraped
+    :return: user_id of the account
+    """
     url = f"{API}/me?fields=user_id,username&{ACCESS}"
     username = requests.get(url)
     return username.json()["user_id"]
 
 
 def get_post_count(ig_user_id):
+    """
+    gets number of posts from the account
+    """
     url = f"{API}/{ig_user_id}?fields=media_count&{ACCESS}"
     return requests.get(url).json()["media_count"]
 
 
 # Step 1: Fetch media
 def get_media_ids(ig_user_id):
+    """
+    gets all media ids from the account from Instagram API
+    :param ig_user_id:
+    :return: list of media ids
+    """
     data = []
     url = f"{API}/{ig_user_id}/media?{ACCESS}&limit=100"
     response = requests.get(url)
@@ -159,6 +215,11 @@ def get_media_ids(ig_user_id):
 
 # Step 2: Fetch comments for a specific media ID
 def get_comments(media_id):
+    """
+    gets all comments for a specific media id from Instagram API
+    :param media_id: media id to get comments for
+    :return: list of comments in json format, each comment is a dictionary with keys from comment_fields
+    """
     data = []
     fields = ','.join(comment_fields)
     url = f"{API}/{media_id}/comments?fields={fields}&{ACCESS}&limit=100"
@@ -173,6 +234,11 @@ def get_comments(media_id):
 
 
 def get_media_info(media_id):
+    """
+    gets all media info for a specific media id from Instagram API
+    :param media_id:
+    :return: json with keys from media_fields
+    """
     fields = ",".join(media_fields)
     url = f"{API}/{media_id}/?fields={fields}&{ACCESS}"
     response = requests.get(url)
