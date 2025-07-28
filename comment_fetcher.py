@@ -4,6 +4,15 @@ import requests
 import openpyxl as xl
 import datetime
 
+from openpyxl.worksheet.table import Table
+
+LOLB_ID = '17841462631587743'
+
+LOGIN_URL = ('https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=1331168008081643'
+             '&redirect_uri=https://libraryoflostbooks.com/iglogin&response_type=code&scope='
+             'instagram_business_basic%2Cinstagram_business_manage_messages%2Cinstagram_business_manage_comments'
+             '%2Cinstagram_business_content_publish%2Cinstagram_business_manage_insights')
+
 API = "https://graph.instagram.com/v23.0"
 media_fields = ['id',
                 'caption',
@@ -35,23 +44,6 @@ standardized_comment_fields = {'id': None,
                                'hidden': 'UNKNOWN'}
 
 
-def add_collaborators(workbook: xl.Workbook):
-    sheet = workbook.active
-    sheet.cell(row=1, column=sheet.max_column + 1, value='collaborators')
-    for row in sheet.iter_rows(min_row=2):
-        media_id = row[0].value
-        collabs_json = get_collabs(media_id)
-        collabs = ', '.join([data['username'] for data in collabs_json['data']])
-        row[-1].value = collabs
-
-
-def get_collabs(media_id):
-    url = f"{API}/{media_id}/collaborators&{ACCESS}"
-
-    response = requests.get(url)
-    return response.json()
-
-
 def reformat_media_product_type(json):
     """
     combines fields media_product_type and is_shared_to_feed into one field
@@ -76,48 +68,32 @@ def create_xl(name):
     wb = xl.Workbook()
     sheet = wb.active
     sheet.title = "Posts"
-    sheet.append(media_fields[:-1] + ['collaborators'])
+    sheet.append(media_fields[:-1])
     for column in sheet.columns:
         sheet.column_dimensions[column[0].column_letter].width = 20
     wb.save(name)
     return wb
 
 
-def edit_margins(workbook):
-    sheet = workbook.active
-    for column in sheet.columns:
-        sheet.column_dimensions[column[0].column_letter].width = 20
-
-
-def open_xl(filename):
-    workbook = xl.load_workbook(filename)
-    return workbook
-
-
 def add_all_media(media_list):
     """
-    adds all media from media_list to the excel workbook
+    adds all media from media_list to the Excel workbook
     :param media_list: list of media_ids
-    :return: number of comments total from all media added to excel workbook
     """
-    i = 1
+    count = 1
     sheet = workbook.active
-    count = 0
     for media in media_list:
         data = get_media_info(media['id'])
-        count += data['comments_count']
         data['timestamp'] = reformat_time(data['timestamp'])
-        # collabs_json = get_collabs(media['id'])
-        # collabs = ', '.join([data['username'] for data in collabs_json['data']])
-        # row.append(collabs)
         sheet.append(list(data.values())[:-1])
 
         print('\r', end='')
-        print(f'{i}/{len(media_list)}', end='')
-        i += 1
+        print(f'{count}/{len(media_list)}', end='')
+        count += 1
     print("\nAdded media")
+    table = Table(displayName="Posts", ref=f"A1:H{len(media_list)+1}")
+    sheet.add_table(table)
     workbook.save(filename)
-    return count
 
 
 def reformat_time(time):
@@ -137,7 +113,7 @@ def create_comments_sheet():
     :return: sheet object
     """
     sheet = workbook.create_sheet("Comments")
-    sheet.append(standardized_comment_fields.keys())
+    sheet.append(list(standardized_comment_fields.keys()))
     for column in sheet.columns:
         sheet.column_dimensions[column[0].column_letter].width = 20
     workbook.save(filename)
@@ -152,6 +128,7 @@ def standarize_comment(comment: Dict, media_id):
     :return: standardized version of the comment
     """
     stand_comment = {k: comment.get(k, v) for k, v in standardized_comment_fields.items()}
+    stand_comment['text'] = "'"+stand_comment['text']
     stand_comment['post_id'] = media_id
     stand_comment['replies'] = len(stand_comment['replies']['data'])
     stand_comment['timestamp'] = reformat_time(stand_comment['timestamp'])
@@ -173,33 +150,14 @@ def add_comments(media_id, sheet):
     return len(comments)
 
 
-def get_username():
-    """
-    gets username of the account that is being scraped
-    :return: user_id of the account
-    """
-    url = f"{API}/me?fields=user_id,username&{ACCESS}"
-    username = requests.get(url)
-    return username.json()["user_id"]
-
-
-def get_post_count(ig_user_id):
-    """
-    gets number of posts from the account
-    """
-    url = f"{API}/{ig_user_id}?fields=media_count&{ACCESS}"
-    return requests.get(url).json()["media_count"]
-
-
 # Step 1: Fetch media
-def get_media_ids(ig_user_id):
+def get_media_ids():
     """
     gets all media ids from the account from Instagram API
-    :param ig_user_id:
     :return: list of media ids
     """
     data = []
-    url = f"{API}/{ig_user_id}/media?{ACCESS}&limit=100"
+    url = f"{API}/me/media?{ACCESS}&limit=100"
     response = requests.get(url)
     json = response.json()
     data += json['data']
@@ -246,50 +204,85 @@ def get_media_info(media_id):
     return json
 
 
-# Example Usage
-# media = get_media(INSTAGRAM_USER_ID, ACCESS_TOKEN)
-# print("Media:", media)
+def refresh_token(access):
+    """
+    Refreshes access token. If it fails, generates a new one and returns it.
+    :param access: Access token as a formatted string
+    :return: new access token as a formatted string
+    """
+    url = f"{API}/refresh_access_token?grant_type=ig_refresh_token&{access}"
+    response = requests.get(url)
+    json = response.json()
+    if 'access_token' in json:
+        with open('access_token.txt', 'w') as access_file:
+            access_file.write(json['access_token'])
+        return f"access_token={json['access_token']}"
+    else:
+        return generate_access_token()
 
-# if "data" in media and media["data"]:
-# first_media_id = media["data"][0]["id"]  # Fetch the first media ID
-# comments = get_comments(first_media_id, ACCESS_TOKEN)
-# print("Comments:", comments)
 
-# user_id = get_username()
-# total_posts = get_post_count(user_id)
-#
+def generate_access_token():
+    print("Access token expired. Please log in again. Copy the link into your browser,"
+          " then login from the desired account")
+    print(LOGIN_URL)
+    response_url = input("Enter URL of the redirected page (it should be a 404 page)")
+    code = response_url.split("=")[1].split("#")[0]
+    with open('app secret', 'r') as secret_file:
+        secret = secret_file.read()
+    url = "https://api.instagram.com/oauth/access_token"
+    data = {
+        'client_id': '1331168008081643',
+        'client_secret': secret,  # Make sure to use your actual client secret
+        'grant_type': 'authorization_code',
+        'redirect_uri': 'https://libraryoflostbooks.com/iglogin',
+        'code': code
+    }
+    response = requests.post(url, data=data)
+    json = response.json()
+    print(json)
+    if 'access_token' in json:
+        url = f"https://graph.instagram.com/access_token"
+        params = {
+            'grant_type': 'ig_exchange_token',
+            'client_secret': secret,
+            'access_token': json['access_token']
+        }
 
-# test_media_id = '18050673620107822'
-# user_id = get_username()
-# total_posts = get_post_count(user_id)
-# medias = get_media_ids(user_id)
-# print(get_collabs(test_media_id))
-# print(medias[0:10])
-# comments = get_comments(medias[0]['id'])
-# print(comments)
-# sheets = create_xl("Test")
-# add_all_media(medias, sheets)
-# sheets.save("Test.xlsx")
+        json = requests.get(url, params=params).json()
+        print(json)
+        if 'access_token' in json:
+            with open('access_token.txt', 'w') as access_file:
+                access_file.write(json['access_token'])
+            print("Access token generated successfully")
+            return f"access_token={json['access_token']}"
+        else:
+            print("Failed to exchange access token. Please try again.")
+            return generate_access_token()
+    else:
+        print("Failed to generate access token. Please try again.")
+        return generate_access_token()
 
 
 if __name__ == '__main__':
-    with open('key', 'r') as file:
+
+    with open('access_token.txt', 'r') as file:
         access_token = file.read()
 
     ACCESS = f"access_token={access_token}"
+    ACCESS = refresh_token(ACCESS)
 
-    user_id = get_username()
-    medias = get_media_ids(user_id)
-    date = datetime.datetime.now().strftime("%Y-%m-%d")
-    filename = f"Snapshot_{date}.xlsx"
+    medias = get_media_ids()
+    date = datetime.datetime.now().strftime('%d_%m_%y %H%M')
+    filename = f"Snapshot {date}.xlsx"
     workbook = create_xl(filename)
-    comment_count = add_all_media(medias)
     comments_read = 0
 
     create_comments_sheet()
-    for m in medias:
+    for i, m in enumerate(medias):
         comments_read += add_comments(m['id'], workbook['Comments'])
         print('\r', end='')
-        print(f'Fetched {comments_read} comments out of {comment_count}', end='')
+        print(f'Fetched {comments_read} from {i+1} posts', end='')
+    tab = Table(displayName="Comments", ref=f"A1:H{comments_read+1}")
+    workbook['Comments'].add_table(tab)
     print('\rFinished')
     workbook.save(filename)
