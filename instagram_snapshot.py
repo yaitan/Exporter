@@ -1,8 +1,9 @@
-from typing import Dict
+import sys
 
 import requests
 import openpyxl as xl
 import datetime
+import os
 
 from openpyxl.worksheet.table import Table
 
@@ -14,6 +15,7 @@ LOGIN_URL = ('https://www.instagram.com/oauth/authorize?force_reauth=true&client
              '%2Cinstagram_business_content_publish%2Cinstagram_business_manage_insights')
 
 API = "https://graph.instagram.com/v23.0"
+
 media_fields = ['id',
                 'caption',
                 'media_product_type',
@@ -36,7 +38,7 @@ comment_fields = ['text',
 
 standardized_comment_fields = {'id': None,
                                'post_id': 0,
-                               'text': None,
+                               'text': '',
                                'like_count': 0,
                                'replies': {'data': []},
                                'timestamp': None,
@@ -91,7 +93,7 @@ def add_all_media(media_list):
         print(f'{count}/{len(media_list)}', end='')
         count += 1
     print("\nAdded media")
-    table = Table(displayName="Posts", ref=f"A1:H{len(media_list)+1}")
+    table = Table(displayName="Posts", ref=f"A1:H{len(media_list) + 1}")
     sheet.add_table(table)
     workbook.save(filename)
 
@@ -120,7 +122,7 @@ def create_comments_sheet():
     return sheet
 
 
-def standarize_comment(comment: Dict, media_id):
+def standarize_comment(comment, media_id):
     """
     ensures that all comments have the same structure, and changes replies to number of replies
     :param comment: Json formatted comment
@@ -128,7 +130,7 @@ def standarize_comment(comment: Dict, media_id):
     :return: standardized version of the comment
     """
     stand_comment = {k: comment.get(k, v) for k, v in standardized_comment_fields.items()}
-    stand_comment['text'] = "'"+stand_comment['text']
+    stand_comment['text'] = "'" + stand_comment['text']
     stand_comment['post_id'] = media_id
     stand_comment['replies'] = len(stand_comment['replies']['data'])
     stand_comment['timestamp'] = reformat_time(stand_comment['timestamp'])
@@ -150,7 +152,6 @@ def add_comments(media_id, sheet):
     return len(comments)
 
 
-# Step 1: Fetch media
 def get_media_ids():
     """
     gets all media ids from the account from Instagram API
@@ -171,7 +172,6 @@ def get_media_ids():
     return data
 
 
-# Step 2: Fetch comments for a specific media ID
 def get_comments(media_id):
     """
     gets all comments for a specific media id from Instagram API
@@ -214,58 +214,98 @@ def refresh_token(access):
     response = requests.get(url)
     json = response.json()
     if 'access_token' in json:
-        with open('access_token.txt', 'w') as access_file:
+        with open(access_token_path, 'w') as access_file:
             access_file.write(json['access_token'])
         return f"access_token={json['access_token']}"
     else:
         return generate_access_token()
 
 
-def generate_access_token():
+def generate_temp_token(secret):
+    """
+    generates a short lived access token using instagram login.
+    :param secret: app secret
+    :return: short lived access token
+    """
     print("Access token expired. Please log in again. Copy the link into your browser,"
           " then login from the desired account")
     print(LOGIN_URL)
-    response_url = input("Enter URL of the redirected page (it should be a 404 page)")
+    response_url = input("Enter URL of the redirected page (it should be a 404 page)\n")
     code = response_url.split("=")[1].split("#")[0]
-    with open('app secret', 'r') as secret_file:
-        secret = secret_file.read()
+
     url = "https://api.instagram.com/oauth/access_token"
     data = {
         'client_id': '1331168008081643',
-        'client_secret': secret,  # Make sure to use your actual client secret
+        'client_secret': secret,
         'grant_type': 'authorization_code',
         'redirect_uri': 'https://libraryoflostbooks.com/iglogin',
         'code': code
     }
     response = requests.post(url, data=data)
     json = response.json()
-    print(json)
     if 'access_token' in json:
-        url = f"https://graph.instagram.com/access_token"
-        params = {
-            'grant_type': 'ig_exchange_token',
-            'client_secret': secret,
-            'access_token': json['access_token']
-        }
-
-        json = requests.get(url, params=params).json()
-        print(json)
-        if 'access_token' in json:
-            with open('access_token.txt', 'w') as access_file:
-                access_file.write(json['access_token'])
-            print("Access token generated successfully")
-            return f"access_token={json['access_token']}"
-        else:
-            print("Failed to exchange access token. Please try again.")
-            return generate_access_token()
+        return json['access_token']
     else:
-        print("Failed to generate access token. Please try again.")
-        return generate_access_token()
+        print("Failed to generate token. Please try again.")
+        return generate_temp_token(secret)
+
+
+def exchange_access_token(temp_token, secret):
+    """
+    Exchanges short lived access token for long lived access token..
+    :param temp_token: short lived access token
+    :param secret: app secret
+    :return: long lived access token as a formatted string
+    """
+    url = f"https://graph.instagram.com/access_token"
+    params = {
+        'grant_type': 'ig_exchange_token',
+        'client_secret': secret,
+        'access_token': temp_token
+    }
+    json = requests.get(url, params=params).json()
+    if 'access_token' in json:
+        with open(access_token_path, 'w') as access_file:
+            access_file.write(json['access_token'])
+        print("Access token generated successfully")
+        return f"access_token={json['access_token']}"
+    else:
+        print("Failed to exchange access token. Please try again.")
+        return generate_temp_token(secret)
+
+
+def generate_access_token():
+    """
+    Generates a new access token through instagram login.
+    :return: new access token as a formatted string
+    """
+    with open(secret_path, 'r') as secret_file:
+        secret = secret_file.read()
+    temp_token = generate_temp_token(secret)
+    return exchange_access_token(temp_token, secret)
+
+
+def create_file_paths():
+    """
+    creates filepaths for access token and secret file for use in exe
+    :return: useable filepaths
+    """
+    access_file_path = os.path.join(os.getcwd(), "access_token.txt")
+
+    if getattr(sys, 'frozen', False):
+        # If the application is run as a bundle
+        base_path = sys._MEIPASS
+    else:
+        # If run normally
+        base_path = os.path.abspath(".")
+
+    secret_path_file = os.path.join(base_path, 'app secret')
+    return access_file_path, secret_path_file
 
 
 if __name__ == '__main__':
-
-    with open('access_token.txt', 'r') as file:
+    access_token_path, secret_path = create_file_paths()
+    with open(access_token_path, 'r') as file:
         access_token = file.read()
 
     ACCESS = f"access_token={access_token}"
@@ -275,14 +315,14 @@ if __name__ == '__main__':
     date = datetime.datetime.now().strftime('%d_%m_%y %H%M')
     filename = f"Snapshot {date}.xlsx"
     workbook = create_xl(filename)
+    add_all_media(medias)
     comments_read = 0
-
     create_comments_sheet()
     for i, m in enumerate(medias):
         comments_read += add_comments(m['id'], workbook['Comments'])
         print('\r', end='')
-        print(f'Fetched {comments_read} from {i+1} posts', end='')
-    tab = Table(displayName="Comments", ref=f"A1:H{comments_read+1}")
+        print(f'Fetched {comments_read} from {i + 1} posts', end='')
+    tab = Table(displayName="Comments", ref=f"A1:H{comments_read + 1}")
     workbook['Comments'].add_table(tab)
     print('\rFinished')
     workbook.save(filename)
