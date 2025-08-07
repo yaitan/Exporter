@@ -1,22 +1,19 @@
 import sys
-
 import requests
 import openpyxl as xl
 import datetime
 import os
-
 from openpyxl.worksheet.table import Table
 
-LOLB_ID = '17841462631587743'
+LOGIN_REDIRECT_URL = "YOUR_LOGIN_REDIRECT_URL"
 
-LOGIN_URL = ('https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=1331168008081643'
-             '&redirect_uri=https://libraryoflostbooks.com/iglogin&response_type=code&scope='
-             'instagram_business_basic%2Cinstagram_business_manage_messages%2Cinstagram_business_manage_comments'
-             '%2Cinstagram_business_content_publish%2Cinstagram_business_manage_insights')
+LOGIN_URL = "YOUR_INSTAGRAM_BUSINESS_LOGIN_URL"
+
+CLIENT_ID = "YOUR_CLIENT_ID"
 
 API = "https://graph.instagram.com/v23.0"
 
-media_fields = ['id',
+MEDIA_FIELDS = ['id',
                 'caption',
                 'media_product_type',
                 'media_type',
@@ -27,7 +24,7 @@ media_fields = ['id',
                 'is_shared_to_feed'
                 ]
 
-comment_fields = ['text',
+COMMENT_FIELDS = ['text',
                   'id',
                   'like_count',
                   'replies',
@@ -36,7 +33,7 @@ comment_fields = ['text',
                   'hidden',
                   ]
 
-standardized_comment_fields = {'id': None,
+STANDARDIZED_COMMENT_FIELDS = {'id': None,
                                'post_id': 0,
                                'text': '',
                                'like_count': 0,
@@ -63,14 +60,14 @@ def reformat_media_product_type(json):
 
 def create_xl(name):
     """
-    creates excel workbook with first sheet named Posts
+    creates excel workbook with first sheet named Posts and saves the workbook
     :param name: filename of excel file
     :return: workbook object
     """
     wb = xl.Workbook()
     sheet = wb.active
     sheet.title = "Posts"
-    sheet.append(media_fields[:-1])
+    sheet.append(MEDIA_FIELDS[:-1])
     for column in sheet.columns:
         sheet.column_dimensions[column[0].column_letter].width = 20
     wb.save(name)
@@ -79,7 +76,7 @@ def create_xl(name):
 
 def add_all_media(media_list):
     """
-    adds all media from media_list to the Excel workbook
+    adds all media from media_list to the Excel workbook and saves the workbook
     :param media_list: list of media_ids
     """
     count = 1
@@ -111,11 +108,11 @@ def reformat_time(time):
 
 def create_comments_sheet():
     """
-    creates sheet named Comments in workbook
+    creates sheet named Comments in workbook and saves the workbook
     :return: sheet object
     """
     sheet = workbook.create_sheet("Comments")
-    sheet.append(list(standardized_comment_fields.keys()))
+    sheet.append(list(STANDARDIZED_COMMENT_FIELDS.keys()))
     for column in sheet.columns:
         sheet.column_dimensions[column[0].column_letter].width = 20
     workbook.save(filename)
@@ -129,7 +126,7 @@ def standarize_comment(comment, media_id):
     :param media_id: id of media post comment belongs to
     :return: standardized version of the comment
     """
-    stand_comment = {k: comment.get(k, v) for k, v in standardized_comment_fields.items()}
+    stand_comment = {k: comment.get(k, v) for k, v in STANDARDIZED_COMMENT_FIELDS.items()}
     stand_comment['text'] = "'" + stand_comment['text']
     stand_comment['post_id'] = media_id
     stand_comment['replies'] = len(stand_comment['replies']['data'])
@@ -139,7 +136,7 @@ def standarize_comment(comment, media_id):
 
 def add_comments(media_id, sheet):
     """
-    adds comments from the media to the comments sheet
+    adds comments from the media to the comments sheet and saves the workbook
     :param media_id: id of media post to get comments from
     :param sheet: sheet object to add comments to
     :return: number of comments added to sheet
@@ -179,7 +176,7 @@ def get_comments(media_id):
     :return: list of comments in json format, each comment is a dictionary with keys from comment_fields
     """
     data = []
-    fields = ','.join(comment_fields)
+    fields = ','.join(COMMENT_FIELDS)
     url = f"{API}/{media_id}/comments?fields={fields}&{ACCESS}&limit=100"
     response = requests.get(url)
     json = response.json()
@@ -197,7 +194,7 @@ def get_media_info(media_id):
     :param media_id:
     :return: json with keys from media_fields
     """
-    fields = ",".join(media_fields)
+    fields = ",".join(MEDIA_FIELDS)
     url = f"{API}/{media_id}/?fields={fields}&{ACCESS}"
     response = requests.get(url)
     json = reformat_media_product_type(response.json())
@@ -235,10 +232,10 @@ def generate_temp_token(secret):
 
     url = "https://api.instagram.com/oauth/access_token"
     data = {
-        'client_id': '1331168008081643',
+        'client_id': CLIENT_ID,
         'client_secret': secret,
         'grant_type': 'authorization_code',
-        'redirect_uri': 'https://libraryoflostbooks.com/iglogin',
+        'redirect_uri': LOGIN_REDIRECT_URL,
         'code': code
     }
     response = requests.post(url, data=data)
@@ -304,25 +301,28 @@ def create_file_paths():
 
 
 if __name__ == '__main__':
+    # get access token
     access_token_path, secret_path = create_file_paths()
     with open(access_token_path, 'r') as file:
         access_token = file.read()
-
     ACCESS = f"access_token={access_token}"
     ACCESS = refresh_token(ACCESS)
-
-    medias = get_media_ids()
+    # create xlsx file
     date = datetime.datetime.now().strftime('%d_%m_%y %H%M')
     filename = f"Snapshot {date}.xlsx"
     workbook = create_xl(filename)
-    add_all_media(medias)
-    comments_read = 0
     create_comments_sheet()
+    # get posts
+    medias = get_media_ids()
+    add_all_media(medias)
+    # get comments
+    comments_read = 0
     for i, m in enumerate(medias):
         comments_read += add_comments(m['id'], workbook['Comments'])
         print('\r', end='')
         print(f'Fetched {comments_read} from {i + 1} posts', end='')
     tab = Table(displayName="Comments", ref=f"A1:H{comments_read + 1}")
     workbook['Comments'].add_table(tab)
-    print('\rFinished')
     workbook.save(filename)
+
+    print('\rFinished')

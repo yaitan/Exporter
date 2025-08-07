@@ -1,0 +1,23 @@
+The application named instagram_snapshot will create an xlsx file containing all the user's posts and comments on those posts.
+
+SETUP:
+Requirements are in requirements.txt
+You must have a file named "access_token.txt", preferably with a live Instagram access token using Instagram login.
+You must have a file named "app secret" containing your Meta app's secret.
+Change the first 3 variables in the script instagram_snapshot.py with your login redirect URL, Instagram Business login URL, and client_id.
+The Instagram user must be added to your App Dashboard in the Instagram section.
+
+USAGE:
+Run the script instagram_snapshot.py with no arguments. Typically, the program takes 5-10 minutes to complete, after which the console window will automatically close.
+Once finished, an xlsx file will be created with a name in the following format: "Snapshot dd_mm_yy hhmm" using the date and time when the program was started. For example, "Snapshot 28_07_25 1801" was the result of running the program on July 28th, 2025, 18:01. Each running of the program will create a separate snapshot file, allowing the user to keep track of changes or trends over the usage of the program.
+
+The Program uses an Instagram access token which lasts 60 days, and is refreshed every time the program is ran. In the event that the access token is expired, follow the instructions written on the console window of the program. Specifically:
+	1) Run the program
+	2) Copy the link in the console window into your browser. 
+
+	3) This will ask you to sign in to the your Instagram business page and give permission to the app to view and manage your posts and comments. Note that the application will only view, and not edit or manage.
+	4) Once you allow the app in the Instagram page, it will redirect you to the redirect web page. Copy the entire URL and paste it into the program.
+	5) The program should then run normally, with a new access token that will last at least 60 days.
+
+	6) In the event of an error in these steps, the program will ask you to attempt again from step 2.
+
